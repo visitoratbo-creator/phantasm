@@ -1,0 +1,18 @@
+[package]
+name = "phantasm"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop Mirror: Phantasm — a fourth-wall-breaking investigation horror engine"
+license = "MIT"
+
+[dependencies]
+winit    = "0.29"   # pinned: multi-window, elwt.create_window, KeyboardInput KeyEvent
+wgpu     = "0.20"   # pinned: ImageCopyTexture/ImageDataLayout names, &str entry_points
+pollster = "0.3"
+rodio    = "0.17"
+bytemuck = { version = "1.14", features = ["derive"] }
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
