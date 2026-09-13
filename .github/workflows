@@ -1,0 +1,103 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    name: build-${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: phantasm-windows-x64
+            binary: phantasm.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: phantasm-linux-x64
+            binary: phantasm
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: phantasm-macos-arm64
+            binary: phantasm
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # winit needs the xkbcommon/wayland/xcb client libraries; rodio needs ALSA.
+      - name: linux system libraries (winit + rodio stack)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev pkg-config libxkbcommon-dev libwayland-dev libxcb1-dev
+
+      - name: cargo cache (keyed per target)
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: build (release)
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" dist/
+          printf 'DESKTOP MIRROR: PHANTASM\n=======================\n\nWARNING: this build produces SUDDEN LOUD AUDIO, flashing imagery and\nviolent window motion. Lower your speaker volume before running.\nNothing ever leaves this process; ESC terminates immediately.\n' > dist/README.txt
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "${{ matrix.artifact }}.zip" ./dist
+          else
+            tar -czf "${{ matrix.artifact }}.tar.gz" -C dist .
+          fi
+
+      - name: upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            *.zip
+            *.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: release (tagged builds only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: publish github release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+          generate_release_notes: true
